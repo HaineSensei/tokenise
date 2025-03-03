@@ -1,6 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-#[derive(Clone,Copy,Debug)]
+// TODO: add multi-character Parenthesis and Balanced delimiter compatibility — necessary for standard string literal handling.
+#[derive(Clone,Copy,Debug,PartialEq)]
 pub enum TokenState {
     Word,
     LParenthesis,
@@ -8,6 +9,8 @@ pub enum TokenState {
     SymbolString,
     NewLine,
     WhiteSpace,
+    SLComment,
+    MLComment
 }
 use TokenState::*;
 
@@ -16,6 +19,11 @@ pub enum Side {
     Left
 }
 
+pub fn is_whitespace(c: &str) -> bool {
+    c.trim().is_empty()
+}
+
+#[derive(Debug,PartialEq)]
 pub struct Token<'a> {
     state: TokenState,
     val: &'a str,
@@ -150,7 +158,8 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
         }
         true
     }
-    /// TODO: Add whitespace and comment handling
+
+    
     pub fn tokenise<'f>(&self, text: &'f str) -> Result<Vec<Token<'f>>,String> {
         let mut out: Vec<Token<'f>> = Vec::new();
         let mut curr_string: String = String::new();
@@ -161,23 +170,42 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                 None => {
                     curr_string.push_str(c);
                     if self.special(c) {
-                        curr_state = Some(SymbolString);
-                        curr_start = curr_pos;
-                        match self.parenthesis(c) {
-                            Some(Side::Left) => {
-                                out.push(Token { state: LParenthesis, val: c, start_pos: curr_pos });
-                                curr_string = String::new();
-                                curr_state = None;
-                            },
-                            Some(Side::Right) => {
-                                out.push(Token { state: RParenthesis, val: c, start_pos: curr_pos });
-                                curr_string = String::new();
-                                curr_state = None;
-                            },
-                            None => {}
+                        if self.is_sl_comment_start(&c.to_string()) {
+                            curr_state = Some(SLComment);
+                            curr_start = curr_pos;
+                        } else if self.is_ml_comment_start(&c.to_string()) {
+                            curr_state = Some(MLComment);
+                            curr_start = curr_pos;
+                        } else {
+                            curr_state = Some(SymbolString);
+                            curr_start = curr_pos;
+                            match self.parenthesis(c) {
+                                Some(Side::Left) => {
+                                    out.push(Token { state: LParenthesis, val: c, start_pos: curr_pos });
+                                    curr_string = String::new();
+                                    curr_state = None;
+                                },
+                                Some(Side::Right) => {
+                                    out.push(Token { state: RParenthesis, val: c, start_pos: curr_pos });
+                                    curr_string = String::new();
+                                    curr_state = None;
+                                },
+                                None => {}
+                            }
                         }
                     } else {
-                        curr_state = Some(Word);
+                        if c == "\n" {
+                            out.push(Token {
+                                state: WhiteSpace,
+                                val: c,
+                                start_pos: curr_pos
+                            });
+                            curr_string = String::new();
+                        } else if is_whitespace(c) {
+                            curr_state = Some(WhiteSpace);
+                        } else {
+                            curr_state = Some(Word);
+                        }
                         curr_start = curr_pos;
                     }
                 },
@@ -207,7 +235,28 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                             }
                         }
                     } else {
-                        curr_string.push_str(c);
+                        if is_whitespace(c) {
+                            out.push(Token{
+                                state: Word,
+                                val: &text[curr_start..curr_pos],
+                                start_pos: curr_start
+                            });
+                            if c == "\n" {
+                                out.push(Token {
+                                    state: NewLine,
+                                    val: c,
+                                    start_pos: curr_pos
+                                });
+                                curr_state = None;
+                                curr_string = String::new();
+                            } else {
+                                curr_string = String::from(c);
+                                curr_state = Some(WhiteSpace);
+                                curr_start = curr_pos;
+                            }
+                        } else {
+                            curr_string.push_str(c);
+                        }
                     }
                 },
                 Some(SymbolString) => {
@@ -216,10 +265,121 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                         curr_string = String::from(c);
                         curr_start = curr_pos;
                         if is_whitespace(c) {
-
+                            if c == "\n" {
+                                out.push(Token {
+                                    state: NewLine,
+                                    val: c,
+                                    start_pos: curr_pos
+                                });
+                                curr_state = None;
+                                curr_string = String::new();
+                            } else {
+                                curr_state = Some(WhiteSpace);
+                            }
+                        } else {
+                            curr_state = Some(Word);
+                        }
+                    } else {
+                        curr_string.push_str(c);
+                        if self.is_sl_comment_start(&curr_string) {
+                            curr_state = Some(SLComment);
+                        } else if self.is_ml_comment_end(&curr_string) {
+                            curr_state = Some(MLComment);
                         }
                     }
                 },
+                Some(WhiteSpace) => {
+                    if self.special(c) {
+                        out.push(Token {
+                            state: WhiteSpace,
+                            val: &text[curr_start..curr_pos],
+                            start_pos: curr_start
+                        });
+                        match self.parenthesis(c) {
+                            None => {
+                                curr_string = String::from(c);
+                                if self.is_sl_comment_start(&curr_string) {
+                                    curr_state = Some(SLComment);
+                                } else if self.is_ml_comment_start(&curr_string) {
+                                    curr_state = Some(MLComment);
+                                } else {
+                                    curr_state = Some(SymbolString);
+                                }
+                                curr_start = curr_pos;
+                            },
+                            Some(Side::Left) => {
+                                out.push(Token { state: LParenthesis, val: c, start_pos: curr_pos });
+                                curr_string = String::new();
+                                curr_state = None;
+                            },
+                            Some(Side::Right) => {
+                                out.push(Token { state: RParenthesis, val: c, start_pos: curr_pos });
+                                curr_string = String::new();
+                                curr_state = None;
+                            }
+                        }
+                    } else {
+                        if c == "\n" {
+                            out.push(Token {
+                                state: WhiteSpace,
+                                val: &text[curr_start..curr_pos],
+                                start_pos: curr_start
+                            });
+                            out.push(Token {
+                                state: NewLine,
+                                val: c,
+                                start_pos: curr_pos
+                            });
+                            curr_string = String::new();
+                            curr_state = None;
+                        } else if is_whitespace(c) {
+                            curr_string.push_str(c);
+                        } else {
+                            out.push(Token {
+                                state: WhiteSpace,
+                                val: &text[curr_start..curr_pos],
+                                start_pos: curr_start
+                            });
+                            curr_string = String::from(c);
+                            curr_start = curr_pos;
+                            curr_state = Some(Word);
+                        }
+                    }
+                },
+                Some(SLComment) => {
+                    if c == "\n" {
+                        out.push(Token {
+                            state: SLComment,
+                            val: &text[curr_start..curr_pos],
+                            start_pos: curr_start
+                        });
+                        out.push(Token {
+                            state: NewLine,
+                            val: c,
+                            start_pos: curr_pos
+                        });
+                        curr_string = String::new();
+                        curr_state = None;
+                    } else {
+                        curr_string.push_str(c);
+                    }
+                },
+                Some(MLComment) => {
+                    curr_string.push_str(c);
+                    let end = match self.ml_comment() {
+                        Some((_, e)) => Ok(e),
+                        _ => Err("This should never happen".to_string())
+                    }.unwrap();
+                    if curr_string.ends_with(end) {
+                        out.push(Token {
+                            state: MLComment,
+                            val: &text[curr_start..curr_pos+(c.len())],
+                            start_pos: curr_start
+                        });
+                        curr_state = None;
+                        curr_string = String::new();
+                    }
+                }
                 other => {return Err(format!("curr_state should never reach {:?}",other))}
             }
         }
@@ -245,5 +405,72 @@ mod tests {
         assert_eq!(tokeniser.parentheses(),vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
         assert_eq!(tokeniser.sl_comment(),Some("//"));
         assert_eq!(tokeniser.ml_comment(),Some(("/*","*/")));
+    }
+
+    #[test]
+    fn tokeniser_tokenise_works() {
+        let source = " hi, skdjfs;;    842\t 39fsl == 3\n \
+        what's going on? idk... \n\
+        fire___sldfksfl // what's going on? \n\
+        idk what I'm 🇺🇸doing \n\
+        \n\
+         now👋🏽 hi £*$*@ \n\
+        help!\n\
+        ";
+        let tokeniser = Tokeniser::new(r",;=?.'*)(/£<>@🇺🇸👋🏽",&vec!["()","[]"], Some("//"), Some(("🇺🇸","👋🏽"))).unwrap();
+        assert_eq!(tokeniser.tokenise(source).unwrap(),vec![
+            Token { state: WhiteSpace, val: " ", start_pos: 0 },
+            Token { state: Word, val: "hi", start_pos: 1 },
+            Token { state: SymbolString, val: ",", start_pos: 3 },
+            Token { state: WhiteSpace, val: " ", start_pos: 4 },
+            Token { state: Word, val: "skdjfs", start_pos: 5 },
+            Token { state: SymbolString, val: ";;", start_pos: 11 },
+            Token { state: WhiteSpace, val: "    ", start_pos: 13 },
+            Token { state: Word, val: "842", start_pos: 17 },
+            Token { state: WhiteSpace, val: "\t ", start_pos: 20 },
+            Token { state: Word, val: "39fsl", start_pos: 22 },
+            Token { state: WhiteSpace, val: " ", start_pos: 27 },
+            Token { state: SymbolString, val: "==", start_pos: 28 },
+            Token { state: WhiteSpace, val: " ", start_pos: 30 },
+            Token { state: Word, val: "3", start_pos: 31 },
+            Token { state: NewLine, val: "\n", start_pos: 32 },
+            Token { state: WhiteSpace, val: " ", start_pos: 33 },
+            Token { state: Word, val: "what", start_pos: 34 },
+            Token { state: SymbolString, val: "'", start_pos: 38 },
+            Token { state: Word, val: "s", start_pos: 39 },
+            Token { state: WhiteSpace, val: " ", start_pos: 40 },
+            Token { state: Word, val: "going", start_pos: 41 },
+            Token { state: WhiteSpace, val: " ", start_pos: 46 },
+            Token { state: Word, val: "on", start_pos: 47 },
+            Token { state: SymbolString, val: "?", start_pos: 49 },
+            Token { state: WhiteSpace, val: " ", start_pos: 50 },
+            Token { state: Word, val: "idk", start_pos: 51 },
+            Token { state: SymbolString, val: "...", start_pos: 54 },
+            Token { state: WhiteSpace, val: " ", start_pos: 57 },
+            Token { state: NewLine, val: "\n", start_pos: 58 },
+            Token { state: Word, val: "fire___sldfksfl", start_pos: 59 },
+            Token { state: WhiteSpace, val: " ", start_pos: 74 },
+            Token { state: SLComment, val: "// what's going on? ", start_pos: 75 },
+            Token { state: NewLine, val: "\n", start_pos: 95 },
+            Token { state: Word, val: "idk", start_pos: 96 },
+            Token { state: WhiteSpace, val: " ", start_pos: 99 },
+            Token { state: Word, val: "what", start_pos: 100 },
+            Token { state: WhiteSpace, val: " ", start_pos: 104 },
+            Token { state: Word, val: "I", start_pos: 105 },
+            Token { state: SymbolString, val: "'", start_pos: 106 },
+            Token { state: Word, val: "m", start_pos: 107 },
+            Token { state: WhiteSpace, val: " ", start_pos: 108 },
+            Token { state: MLComment, val: "🇺🇸doing \n\nnow👋🏽", start_pos: 109 },
+            Token { state: WhiteSpace, val: " ", start_pos: 136 },
+            Token { state: Word, val: "hi", start_pos: 137 },
+            Token { state: WhiteSpace, val: " ", start_pos: 139 },
+            Token { state: SymbolString, val: "£*", start_pos: 140 },
+            Token { state: Word, val: "$", start_pos: 143 },
+            Token { state: SymbolString, val: "*@", start_pos: 144 },
+            Token { state: WhiteSpace, val: " ", start_pos: 146 },
+            Token { state: NewLine, val: "\n", start_pos: 147 },
+            Token { state: Word, val: "help!", start_pos: 148 },
+            Token { state: NewLine, val: "\n", start_pos: 153 }
+        ]);
     }
 }
