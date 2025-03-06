@@ -1,11 +1,12 @@
 use unicode_segmentation::UnicodeSegmentation;
 
-// TODO: add multi-character Parenthesis and Balanced delimiter compatibility — necessary for standard string literal handling.
+// TODO: add multi-character Parenthesis
 #[derive(Clone,Copy,Debug,PartialEq)]
 pub enum TokenState {
     Word,
-    LParenthesis,
-    RParenthesis,
+    LDelimiter,
+    RDelimiter,
+    BDelimiter,
     SymbolString,
     NewLine,
     WhiteSpace,
@@ -16,7 +17,8 @@ use TokenState::*;
 
 pub enum Side {
     Right,
-    Left
+    Left,
+    Bal
 }
 
 pub fn is_whitespace(c: &str) -> bool {
@@ -44,16 +46,17 @@ impl<'a> Token<'a> {
     }
 }
 
-pub struct Tokeniser<'a, 'b, 'c, 'd, 'e> {
+pub struct Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     special_characters: Vec<&'a str>,
-    parenthesis_pairs: Vec<(&'b str, &'b str)>,
+    delimiter_pairs: Vec<(&'b str, &'b str)>,
+    balanced_delimiters: Vec<&'f str>,
     single_line_comment: Option<&'c str>,
     multi_line_comment: Option<(&'d str, &'e str)>
 }
 
-impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
-    pub fn new(special_characters: &'a str, parenthesis_pairs: &Vec<&'b str>, single_line_comment: Option<&'c str>, multi_line_comment: Option<(&'d str, &'e str)>) -> Result<Self,String> {
-        let parenthesis_pairs_result: Result<Vec<(&str,&str)>,String> = parenthesis_pairs.into_iter().map(|&s| {
+impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
+    pub fn new(special_characters: &'a str, delimiter_pairs: &Vec<&'b str>, balanced_delimiters: &'f str, single_line_comment: Option<&'c str>, multi_line_comment: Option<(&'d str, &'e str)>) -> Result<Self,String> {
+        let delimiter_pairs_result: Result<Vec<(&str,&str)>,String> = delimiter_pairs.into_iter().map(|&s| {
             let vector: Vec<&str> = s.graphemes(true).collect();
             if vector.len() == 2 {
                 Ok((vector[0],vector[1]))
@@ -62,10 +65,11 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
             }
         })
         .collect();
-        match parenthesis_pairs_result {
-            Ok(parenthesis_pairs) => Ok(Self {
+        match delimiter_pairs_result {
+            Ok(delimiter_pairs) => Ok(Self {
                 special_characters: special_characters.graphemes(true).collect(),
-                parenthesis_pairs,
+                delimiter_pairs,
+                balanced_delimiters: balanced_delimiters.graphemes(true).collect(),
                 single_line_comment,
                 multi_line_comment
             }),
@@ -77,8 +81,12 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
         self.special_characters.clone()
     }
 
-    pub fn parentheses(&self) -> Vec<(&'b str, &'b str)> {
-        self.parenthesis_pairs.clone()
+    pub fn lr_delimiters(&self) -> Vec<(&'b str, &'b str)> {
+        self.delimiter_pairs.clone()
+    }
+
+    pub fn bal_delimiters(&self) -> Vec<&'f str> {
+        self.balanced_delimiters.clone()
     }
 
     pub fn sl_comment(&self) -> Option<&'c str> {
@@ -89,7 +97,7 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
         self.multi_line_comment
     }
 
-    pub fn special<'f>(&self, c:&'f str) -> bool {
+    pub fn special<'g>(&self, c:&'g str) -> bool {
         for x in self.specials() {
             if x == c {
                 return true;
@@ -98,41 +106,60 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
         false
     }
     
-    pub fn parenthesis<'f>(&self, c: &'f str) -> Option<Side> {
-        for (x,y) in self.parentheses() {
+    pub fn delimiter<'g>(&self, c: &'g str) -> Option<Side> {
+        for (x,y) in self.lr_delimiters() {
             if x == c {
                 return Some(Side::Left);
             } 
             if y == c {
-                return Some(Side::Right)
+                return Some(Side::Right);
+            }
+        }
+        for x in self.bal_delimiters() {
+            if x == c {
+                return Some(Side::Bal);
             }
         }
         None
     }
 
-    pub fn is_sl_comment_start(&self, s: &String) -> bool {
+    pub fn is_sl_comment_start(&self, s: &str) -> bool {
         match self.sl_comment() {
             None => false,
-            Some(sl_comment) => s.as_str() == sl_comment
+            Some(sl_comment) => s == sl_comment
         }
     }
 
-    pub fn is_ml_comment_start(&self, s: &String) -> bool {
-        match self.ml_comment() {
+    pub fn ends_with_sl_comment_start(&self, s: &str) -> bool {
+        match self.sl_comment() {
             None => false,
-            Some((start,_)) => s.as_str() == start
+            Some(sl_comment) => s.ends_with(sl_comment)
         }
     }
 
-    pub fn is_ml_comment_end(&self, s: &String) -> bool {
+    pub fn is_ml_comment_start(&self, s: &str) -> bool {
         match self.ml_comment() {
             None => false,
-            Some((_, end)) => s.as_str() == end
+            Some((start,_)) => s == start
+        }
+    }
+
+    pub fn ends_with_ml_comment_start(&self, s: &str) -> bool {
+        match self.ml_comment() {
+            None => false,
+            Some((start,_)) => s.ends_with(start)
+        }
+    }
+
+    pub fn is_ml_comment_end(&self, s: &str) -> bool {
+        match self.ml_comment() {
+            None => false,
+            Some((_, end)) => s == end
         }
     }
 
     pub fn well_formed(&self) -> bool {
-        for (x,y) in self.parentheses() {
+        for (x,y) in self.lr_delimiters() {
             if (!self.special(x)) || !self.special(y) {
                 return false;
             }
@@ -160,36 +187,36 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
     }
 
     
-    pub fn tokenise<'f>(&self, text: &'f str) -> Result<Vec<Token<'f>>,String> {
-        let mut out: Vec<Token<'f>> = Vec::new();
-        let mut curr_string: String = String::new();
+    pub fn tokenise<'g>(&self, text: &'g str) -> Result<Vec<Token<'g>>,String> {
+        let mut out: Vec<Token<'g>> = Vec::new();
         let mut curr_start: usize = 0;
         let mut curr_state : Option<TokenState> = None;
         for (curr_pos,c) in text.grapheme_indices(true) {
             match curr_state {
                 None => {
-                    curr_string.push_str(c);
                     if self.special(c) {
-                        if self.is_sl_comment_start(&c.to_string()) {
+                        if self.is_sl_comment_start(c) {
                             curr_state = Some(SLComment);
                             curr_start = curr_pos;
-                        } else if self.is_ml_comment_start(&c.to_string()) {
+                        } else if self.is_ml_comment_start(c) {
                             curr_state = Some(MLComment);
                             curr_start = curr_pos;
                         } else {
                             curr_state = Some(SymbolString);
                             curr_start = curr_pos;
-                            match self.parenthesis(c) {
+                            match self.delimiter(c) {
                                 Some(Side::Left) => {
-                                    out.push(Token { state: LParenthesis, val: c, start_pos: curr_pos });
-                                    curr_string = String::new();
+                                    out.push(Token { state: LDelimiter, val: c, start_pos: curr_pos });
                                     curr_state = None;
                                 },
                                 Some(Side::Right) => {
-                                    out.push(Token { state: RParenthesis, val: c, start_pos: curr_pos });
-                                    curr_string = String::new();
+                                    out.push(Token { state: RDelimiter, val: c, start_pos: curr_pos });
                                     curr_state = None;
                                 },
+                                Some(Side::Bal) => {
+                                    out.push(Token { state: BDelimiter, val: c, start_pos: curr_pos });
+                                    curr_state = None;
+                                }
                                 None => {}
                             }
                         }
@@ -200,7 +227,6 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                                 val: c,
                                 start_pos: curr_pos
                             });
-                            curr_string = String::new();
                         } else if is_whitespace(c) {
                             curr_state = Some(WhiteSpace);
                         } else {
@@ -217,19 +243,20 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                             start_pos: curr_start
                         });
                         
-                        match self.parenthesis(c) {
+                        match self.delimiter(c) {
                             Some(Side::Left) => {
-                                out.push(Token { state: LParenthesis, val: c, start_pos: curr_pos });
-                                curr_string = String::new();
+                                out.push(Token { state: LDelimiter, val: c, start_pos: curr_pos });
                                 curr_state = None;
                             },
                             Some(Side::Right) => {
-                                out.push(Token { state: RParenthesis, val: c, start_pos: curr_pos });
-                                curr_string = String::new();
+                                out.push(Token { state: RDelimiter, val: c, start_pos: curr_pos });
+                                curr_state = None;
+                            },
+                            Some(Side::Bal) => {
+                                out.push(Token { state: BDelimiter, val: c, start_pos: curr_pos });
                                 curr_state = None;
                             },
                             None => {
-                                curr_string = String::from(c);
                                 curr_start = curr_pos;
                                 curr_state = Some(SymbolString);
                             }
@@ -248,21 +275,17 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                                     start_pos: curr_pos
                                 });
                                 curr_state = None;
-                                curr_string = String::new();
                             } else {
-                                curr_string = String::from(c);
                                 curr_state = Some(WhiteSpace);
                                 curr_start = curr_pos;
                             }
                         } else {
-                            curr_string.push_str(c);
                         }
                     }
                 },
                 Some(SymbolString) => {
                     if !self.special(c) {
                         out.push(Token { state: SymbolString, val: &text[curr_start..curr_pos], start_pos: curr_start });
-                        curr_string = String::from(c);
                         curr_start = curr_pos;
                         if is_whitespace(c) {
                             if c == "\n" {
@@ -272,7 +295,6 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                                     start_pos: curr_pos
                                 });
                                 curr_state = None;
-                                curr_string = String::new();
                             } else {
                                 curr_state = Some(WhiteSpace);
                             }
@@ -280,11 +302,33 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                             curr_state = Some(Word);
                         }
                     } else {
-                        curr_string.push_str(c);
-                        if self.is_sl_comment_start(&curr_string) {
-                            curr_state = Some(SLComment);
-                        } else if self.is_ml_comment_end(&curr_string) {
-                            curr_state = Some(MLComment);
+                        let curr_str = &text[curr_start..curr_pos+c.len()];
+                        if self.ends_with_sl_comment_start(curr_str) {
+                            if self.is_sl_comment_start(curr_str) {
+                                curr_state = Some(SLComment);
+                            } else {
+                                let new_start = curr_pos + c.len() - self.sl_comment().unwrap().len();
+                                out.push(Token {
+                                    state: SymbolString,
+                                    val: &text[curr_start..new_start],
+                                    start_pos: curr_start
+                                });
+                                curr_state = Some(SLComment);
+                                curr_start = new_start;
+                            }
+                        } else if self.ends_with_ml_comment_start(curr_str) {
+                            if self.is_ml_comment_start(curr_str) {
+                                curr_state = Some(MLComment);
+                            } else {
+                                let new_start = curr_pos + c.len() - self.ml_comment().unwrap().0.len();
+                                out.push(Token {
+                                    state: SymbolString,
+                                    val: &text[curr_start..new_start],
+                                    start_pos: curr_start
+                                });
+                                curr_state = Some(MLComment);
+                                curr_start = new_start;
+                            }
                         }
                     }
                 },
@@ -295,12 +339,11 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                             val: &text[curr_start..curr_pos],
                             start_pos: curr_start
                         });
-                        match self.parenthesis(c) {
+                        match self.delimiter(c) {
                             None => {
-                                curr_string = String::from(c);
-                                if self.is_sl_comment_start(&curr_string) {
+                                if self.is_sl_comment_start(c) {
                                     curr_state = Some(SLComment);
-                                } else if self.is_ml_comment_start(&curr_string) {
+                                } else if self.is_ml_comment_start(c) {
                                     curr_state = Some(MLComment);
                                 } else {
                                     curr_state = Some(SymbolString);
@@ -308,13 +351,15 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                                 curr_start = curr_pos;
                             },
                             Some(Side::Left) => {
-                                out.push(Token { state: LParenthesis, val: c, start_pos: curr_pos });
-                                curr_string = String::new();
+                                out.push(Token { state: LDelimiter, val: c, start_pos: curr_pos });
                                 curr_state = None;
                             },
                             Some(Side::Right) => {
-                                out.push(Token { state: RParenthesis, val: c, start_pos: curr_pos });
-                                curr_string = String::new();
+                                out.push(Token { state: RDelimiter, val: c, start_pos: curr_pos });
+                                curr_state = None;
+                            },
+                            Some(Side::Bal) => {
+                                out.push(Token { state: BDelimiter, val: c, start_pos: curr_pos });
                                 curr_state = None;
                             }
                         }
@@ -330,17 +375,13 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                                 val: c,
                                 start_pos: curr_pos
                             });
-                            curr_string = String::new();
                             curr_state = None;
-                        } else if is_whitespace(c) {
-                            curr_string.push_str(c);
-                        } else {
+                        } else if !is_whitespace(c) {
                             out.push(Token {
                                 state: WhiteSpace,
                                 val: &text[curr_start..curr_pos],
                                 start_pos: curr_start
                             });
-                            curr_string = String::from(c);
                             curr_start = curr_pos;
                             curr_state = Some(Word);
                         }
@@ -358,29 +399,34 @@ impl<'a, 'b, 'c, 'd, 'e> Tokeniser<'a, 'b, 'c, 'd, 'e> {
                             val: c,
                             start_pos: curr_pos
                         });
-                        curr_string = String::new();
                         curr_state = None;
-                    } else {
-                        curr_string.push_str(c);
                     }
                 },
                 Some(MLComment) => {
-                    curr_string.push_str(c);
+                    let curr_str = &text[curr_start..curr_pos+(c.len())];
                     let end = match self.ml_comment() {
                         Some((_, e)) => Ok(e),
                         _ => Err("This should never happen".to_string())
                     }.unwrap();
-                    if curr_string.ends_with(end) {
+                    if curr_str.ends_with(end) {
                         out.push(Token {
                             state: MLComment,
                             val: &text[curr_start..curr_pos+(c.len())],
                             start_pos: curr_start
                         });
                         curr_state = None;
-                        curr_string = String::new();
                     }
-                }
+                },
                 other => {return Err(format!("curr_state should never reach {:?}",other))}
+            }
+        }
+        if let Some(token) = out.last() {
+            if token.value().len() + token.start() != text.len() {
+                out.push(Token {
+                    state: curr_state.unwrap(),
+                    val: &text[curr_start..],
+                    start_pos: curr_start
+                });
             }
         }
         Ok(out)
@@ -400,9 +446,9 @@ mod tests {
 
     #[test]
     fn tokeniser_new_works() {
-        let tokeniser = Tokeniser::new("!@%👨‍💻*", &vec!["<>", "()", "{}", "🇺🇸👋🏽"], Some("//"), Some(("/*","*/"))).unwrap();
+        let tokeniser = Tokeniser::new("!@%👨‍💻*", &vec!["<>", "()", "{}", "🇺🇸👋🏽"], "\"", Some("//"), Some(("/*","*/"))).unwrap();
         assert_eq!(tokeniser.specials(),vec!["!", "@", "%", "👨‍💻", "*"]);
-        assert_eq!(tokeniser.parentheses(),vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
+        assert_eq!(tokeniser.lr_delimiters(),vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
         assert_eq!(tokeniser.sl_comment(),Some("//"));
         assert_eq!(tokeniser.ml_comment(),Some(("/*","*/")));
     }
@@ -416,8 +462,8 @@ mod tests {
         \n\
          now👋🏽 hi £*$*@ \n\
         help!\n\
-        ";
-        let tokeniser = Tokeniser::new(r",;=?.'*)(/£<>@🇺🇸👋🏽",&vec!["()","[]"], Some("//"), Some(("🇺🇸","👋🏽"))).unwrap();
+        \"hello\"hi";
+        let tokeniser = Tokeniser::new(r#",;=?.'*)(/£<>@🇺🇸👋🏽""#,&vec!["()","[]"], "\"", Some("//"), Some(("🇺🇸","👋🏽"))).unwrap();
         assert_eq!(tokeniser.tokenise(source).unwrap(),vec![
             Token { state: WhiteSpace, val: " ", start_pos: 0 },
             Token { state: Word, val: "hi", start_pos: 1 },
@@ -470,7 +516,11 @@ mod tests {
             Token { state: WhiteSpace, val: " ", start_pos: 146 },
             Token { state: NewLine, val: "\n", start_pos: 147 },
             Token { state: Word, val: "help!", start_pos: 148 },
-            Token { state: NewLine, val: "\n", start_pos: 153 }
+            Token { state: NewLine, val: "\n", start_pos: 153 },
+            Token { state: BDelimiter, val: "\"", start_pos: 154 },
+            Token { state: Word, val: "hello", start_pos: 155 },
+            Token { state: BDelimiter, val: "\"", start_pos: 160 },
+            Token { state: Word, val: "hi", start_pos: 161 }
         ]);
     }
 }
