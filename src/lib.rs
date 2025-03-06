@@ -54,6 +54,8 @@ pub struct Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     multi_line_comment: Option<(&'d str, &'e str)>
 }
 
+// TODO: Make Tokeniser::build()
+
 impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     pub fn new(special_characters: &'a str, delimiter_pairs: &Vec<&'b str>, balanced_delimiters: &'f str, single_line_comment: Option<&'c str>, multi_line_comment: Option<(&'d str, &'e str)>) -> Result<Self,String> {
         let delimiter_pairs_result: Result<Vec<(&str,&str)>,String> = delimiter_pairs.into_iter().map(|&s| {
@@ -77,16 +79,16 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
         }
     }
 
-    pub fn specials(&self) -> Vec<&'a str> {
-        self.special_characters.clone()
+    pub fn specials(&self) -> &Vec<&'a str> {
+        &self.special_characters
     }
 
-    pub fn lr_delimiters(&self) -> Vec<(&'b str, &'b str)> {
-        self.delimiter_pairs.clone()
+    pub fn lr_delimiters(&self) -> &Vec<(&'b str, &'b str)> {
+        &self.delimiter_pairs
     }
 
-    pub fn bal_delimiters(&self) -> Vec<&'f str> {
-        self.balanced_delimiters.clone()
+    pub fn bal_delimiters(&self) -> &Vec<&'f str> {
+        &self.balanced_delimiters
     }
 
     pub fn sl_comment(&self) -> Option<&'c str> {
@@ -98,7 +100,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     }
 
     pub fn special<'g>(&self, c:&'g str) -> bool {
-        for x in self.specials() {
+        for &x in self.specials() {
             if x == c {
                 return true;
             }
@@ -107,7 +109,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     }
     
     pub fn delimiter<'g>(&self, c: &'g str) -> Option<Side> {
-        for (x,y) in self.lr_delimiters() {
+        for &(x,y) in self.lr_delimiters() {
             if x == c {
                 return Some(Side::Left);
             } 
@@ -115,7 +117,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                 return Some(Side::Right);
             }
         }
-        for x in self.bal_delimiters() {
+        for &x in self.bal_delimiters() {
             if x == c {
                 return Some(Side::Bal);
             }
@@ -447,8 +449,8 @@ mod tests {
     #[test]
     fn tokeniser_new_works() {
         let tokeniser = Tokeniser::new("!@%👨‍💻*", &vec!["<>", "()", "{}", "🇺🇸👋🏽"], "\"", Some("//"), Some(("/*","*/"))).unwrap();
-        assert_eq!(tokeniser.specials(),vec!["!", "@", "%", "👨‍💻", "*"]);
-        assert_eq!(tokeniser.lr_delimiters(),vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
+        assert_eq!(tokeniser.specials(),&vec!["!", "@", "%", "👨‍💻", "*"]);
+        assert_eq!(tokeniser.lr_delimiters(),&vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
         assert_eq!(tokeniser.sl_comment(),Some("//"));
         assert_eq!(tokeniser.ml_comment(),Some(("/*","*/")));
     }
