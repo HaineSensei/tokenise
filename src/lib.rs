@@ -1,7 +1,7 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 // TODO: add multi-character Parenthesis
-#[derive(Clone,Copy,Debug,PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenState {
     Word,
     LDelimiter,
@@ -25,7 +25,7 @@ pub fn is_whitespace(c: &str) -> bool {
     c.trim().is_empty()
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Token<'a> {
     state: TokenState,
     val: &'a str,
@@ -223,9 +223,9 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                             }
                         }
                     } else {
-                        if c == "\n" {
+                        if c == "\n" || c == "\r" || c == "\r\n" {
                             out.push(Token {
-                                state: WhiteSpace,
+                                state: NewLine,
                                 val: c,
                                 start_pos: curr_pos
                             });
@@ -270,7 +270,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                                 val: &text[curr_start..curr_pos],
                                 start_pos: curr_start
                             });
-                            if c == "\n" {
+                            if c == "\n" || c == "\r" || c == "\r\n" {
                                 out.push(Token {
                                     state: NewLine,
                                     val: c,
@@ -290,7 +290,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                         out.push(Token { state: SymbolString, val: &text[curr_start..curr_pos], start_pos: curr_start });
                         curr_start = curr_pos;
                         if is_whitespace(c) {
-                            if c == "\n" {
+                            if c == "\n" || c == "\r" || c == "\r\n" {
                                 out.push(Token {
                                     state: NewLine,
                                     val: c,
@@ -366,7 +366,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                             }
                         }
                     } else {
-                        if c == "\n" {
+                        if c == "\n" || c == "\r" || c == "\r\n" {
                             out.push(Token {
                                 state: WhiteSpace,
                                 val: &text[curr_start..curr_pos],
@@ -390,7 +390,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                     }
                 },
                 Some(SLComment) => {
-                    if c == "\n" {
+                    if c == "\n" || c == "\r" || c == "\r\n" {
                         out.push(Token {
                             state: SLComment,
                             val: &text[curr_start..curr_pos],
@@ -435,13 +435,14 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     }
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn token_gets_work() {
-        let token = Token{ state: Word, val:"hi", start_pos:4};
+        let token = Token{ state: Word, val:"hi", start_pos:4 };
         assert_eq!(token.start(), 4);
         assert_eq!(token.value(), "hi");
     }
@@ -524,5 +525,20 @@ mod tests {
             Token { state: BDelimiter, val: "\"", start_pos: 160 },
             Token { state: Word, val: "hi", start_pos: 161 }
         ]);
+    }
+
+    #[test]
+    fn test_tokeniser_tokenise_newline_handling() {
+        let source = "hi   \r\n\n\rhiagain";
+        let tokens = vec![
+            Token { state: Word, val: "hi", start_pos: 0 },
+            Token { state: WhiteSpace, val: "   ", start_pos: 2 },
+            Token { state: NewLine, val: "\r\n", start_pos: 5 },
+            Token { state: NewLine, val: "\n", start_pos: 7 },
+            Token { state: NewLine, val: "\r", start_pos: 8},
+            Token { state: Word, val: "hiagain", start_pos: 9}
+        ];
+        let tokeniser = Tokeniser::new("",&vec![],"",None,None).unwrap();
+        assert_eq!(tokeniser.tokenise(source).unwrap(), tokens);
     }
 }
