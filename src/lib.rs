@@ -104,7 +104,7 @@ use TokenState::*;
 /// - Left delimiters open a section (e.g., opening brackets)
 /// - Right delimiters close a section (e.g., closing brackets)
 /// - Balanced delimiters can serve as both opening and closing (e.g., quotation marks)
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Side {
     /// A right (closing) delimiter such as ')', ']', or '}'.
     Right,
