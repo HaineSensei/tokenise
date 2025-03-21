@@ -1,7 +1,15 @@
 [package]
 name = "tokenise"
 version = "0.1.0"
+authors = ["Kazuya Haine <kazuyahaine@icloud.com>"]
 edition = "2024"
+description = "A flexible tokeniser library for parsing text"
+license = "MIT"
+repository = "https://github.com/HaineSensei/tokenise"
+documentation = "https://docs.rs/tokenise"
+readme = "README.md"
+keywords = ["parser", "tokenizer", "lexer"]
+categories = ["parsing"]
 
 [dependencies]
 unicode-segmentation = "1.10.1"
