@@ -15,10 +15,15 @@ pub enum TokenState {
 }
 use TokenState::*;
 
+#[derive(Debug)]
 pub enum Side {
     Right,
     Left,
     Bal
+}
+
+pub fn is_grapheme(s: &str) -> bool {
+    s.graphemes(true).collect::<Vec<_>>().len() == 1
 }
 
 pub fn is_whitespace(c: &str) -> bool {
@@ -46,61 +51,200 @@ impl<'a> Token<'a> {
     }
 }
 
-pub struct Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
-    special_characters: Vec<&'a str>,
-    delimiter_pairs: Vec<(&'b str, &'b str)>,
-    balanced_delimiters: Vec<&'f str>,
-    single_line_comment: Option<&'c str>,
-    multi_line_comment: Option<(&'d str, &'e str)>
+pub struct Tokeniser {
+    special_characters: Vec<String>,
+    delimiter_pairs: Vec<(String, String)>,
+    balanced_delimiters: Vec<String>,
+    single_line_comment: Option<String>,
+    multi_line_comment: Option<(String, String)>
 }
 
-// TODO: Make Tokeniser::build()
+impl Tokeniser {
 
-impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
-    pub fn new(special_characters: &'a str, delimiter_pairs: &Vec<&'b str>, balanced_delimiters: &'f str, single_line_comment: Option<&'c str>, multi_line_comment: Option<(&'d str, &'e str)>) -> Result<Self,String> {
-        let delimiter_pairs_result: Result<Vec<(&str,&str)>,String> = delimiter_pairs.into_iter().map(|&s| {
-            let vector: Vec<&str> = s.graphemes(true).collect();
-            if vector.len() == 2 {
-                Ok((vector[0],vector[1]))
-            } else {
-                return Err(format!("Parenthesis pair \"{}\" not length 2",s))
-            }
-        })
-        .collect();
-        match delimiter_pairs_result {
-            Ok(delimiter_pairs) => Ok(Self {
-                special_characters: special_characters.graphemes(true).collect(),
-                delimiter_pairs,
-                balanced_delimiters: balanced_delimiters.graphemes(true).collect(),
-                single_line_comment,
-                multi_line_comment
-            }),
-            Err(x) => Err(x)
+    pub fn new() -> Self {
+        Self {
+            special_characters: Vec::new(),
+            delimiter_pairs: Vec::new(),
+            balanced_delimiters: Vec::new(),
+            single_line_comment: None,
+            multi_line_comment: None,
         }
     }
 
-    pub fn specials(&self) -> &Vec<&'a str> {
-        &self.special_characters
+    pub fn add_special(&mut self, special: &str) -> Result<(),String> {
+        if !is_grapheme(special) {
+            Err(format!("string {:?} is not a single grapheme",special))
+        } else {
+            if !self.special(special) {
+                self.special_characters.push(special.to_string());
+            }
+            Ok(())
+        }
     }
 
-    pub fn lr_delimiters(&self) -> &Vec<(&'b str, &'b str)> {
-        &self.delimiter_pairs
+    pub fn add_specials(&mut self, specials: &str) {
+        for c in specials.graphemes(true) {
+            self.add_special(c).unwrap();
+        }
     }
 
-    pub fn bal_delimiters(&self) -> &Vec<&'f str> {
-        &self.balanced_delimiters
+    pub fn add_delimiter_pair(&mut self, left: &str, right: &str) -> Result<(),String> {
+        if !is_grapheme(left) {
+            Err(format!("string {:?} is not a single grapheme",left))
+        } else if !is_grapheme(right) {
+            Err(format!("string {:?} is not a single grapheme",right))
+        } else {
+            match (self.delimiter(left),self.delimiter(right)) {
+                (None, None) => {
+                    self.add_special(left).unwrap();
+                    self.add_special(right).unwrap();
+                    self.delimiter_pairs.push((left.to_string(),right.to_string()));
+                },
+                (None, Some(_)) => {
+                    return Err(format!("right delimiter {right:?} is already a delimiter of type {:?} with other pair", self.delimiter(right).unwrap()));
+                },
+                (Some(_), None) => {
+                    return Err(format!("left delimiter {left:?} is already a delimiter of type {:?} with other pair", self.delimiter(left).unwrap()));
+                },
+                (Some(l), Some(r)) => {
+                    match l {
+                        Side::Right => {
+                            return Err(format!("left delimiter {left:?} is already a delimiter of type {:?} with other pair", Side::Right));
+                        },
+                        Side::Left => {},
+                        Side::Bal => {
+                            return Err(format!("left delimiter {left:?} is already a delimiter of type {:?} with other pair", Side::Bal));
+                        },
+                    }
+                    match r {
+                        Side::Right => {},
+                        Side::Left => {
+                            return Err(format!("right delimiter {right:?} is already a delimiter of type {:?} with other pair", Side::Left));
+                        },
+                        Side::Bal => {
+                            return Err(format!("right delimiter {right:?} is already a delimiter of type {:?} with other pair", Side::Bal));
+                        },
+                    }
+                },
+            }
+            Ok(())
+        }
     }
 
-    pub fn sl_comment(&self) -> Option<&'c str> {
+    pub fn add_delimiter_pairs(&mut self, delimiter_pairs: &Vec<&str>) -> Result<(),String> {
+        for &s in delimiter_pairs {
+            let v = s.graphemes(true).collect::<Vec<_>>();
+            if v.len() != 2 {
+                return Err(format!("delimiter pair {s:?} must be made up of 2 graphemes"));
+            }
+            let [left,right] = v.try_into().unwrap();
+            match self.add_delimiter_pair(left, right) {
+                Ok(_) => {},
+                Err(x) => {
+                    return Err(x);
+                },
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_balanced_delimiter(&mut self, delim: &str) -> Result<(),String> {
+        if !is_grapheme(delim) {
+            Err(format!("string {:?} is not a single grapheme",delim))
+        } else {
+            match self.delimiter(delim) {
+                Some(side) => {
+                    match side {
+                        Side::Right => {
+                        return Err(format!("balanced delimiter {delim:?} is already a delimiter of type {:?} with other pair", Side::Right));
+                    },
+                        Side::Left => {
+                            return Err(format!("balanced delimiter {delim:?} is already a delimiter of type {:?} with other pair", Side::Left));
+                        },
+                        Side::Bal => {},
+                    }
+                },
+                None => {
+                    self.add_special(delim).unwrap();
+                    self.balanced_delimiters.push(delim.to_string());
+                },
+            }
+            Ok(())
+        }
+    }
+
+    pub fn add_balanced_delimiters(&mut self, delims: &str) -> Result<(),String> {
+        for delim in delims.graphemes(true) {
+            match self.add_balanced_delimiter(delim) {
+                Ok(_) => {},
+                Err(x) => {
+                    return Err(x);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn set_sl_comment(&mut self, comm: &str) -> Result<(),String> {
+        if comm.len() == 0 {
+            Err(format!("Empty string cannot be the start of a single line comment"))
+        } else {
+            self.add_specials(comm);
+            self.single_line_comment = Some(comm.to_string());
+            Ok(())
+        }
+    }
+
+    pub fn set_ml_comment(&mut self, left: &str, right: &str) -> Result<(),String> {
+        if left.len() == 0 {
+            Err(format!("Empty string cannot be the start of a multi-line comment"))
+        } else if right.len() == 0 {
+            Err(format!("Empty string cannot be the end of a multi-line comment"))
+        } else {
+            self.add_specials(left);
+            self.add_specials(right);
+            self.multi_line_comment = Some((left.to_string(),right.to_string()));
+            Ok(())
+        }
+    }
+
+    pub fn specials<'a>(&'a self) -> Vec<&'a str> {
+        self.special_characters
+            .iter()
+            .map(|x|x.as_str())
+            .collect()
+    }
+
+    pub fn lr_delimiters<'a>(&'a self) -> Vec<(&'a str, &'a str)> {
+        self.delimiter_pairs
+            .iter()
+            .map(|(x,y)|(x.as_str(),y.as_str()))
+            .collect()
+    }
+
+    pub fn bal_delimiters<'a>(&'a self) -> Vec<&'a str> {
+        self.balanced_delimiters
+            .iter()
+            .map(|x|x.as_str())
+            .collect()
+    }
+
+    pub fn sl_comment<'a>(&'a self) -> Option<&'a str> {
         self.single_line_comment
+            .iter()
+            .map(|x| x.as_str())
+            .next()
     }
 
-    pub fn ml_comment(&self) -> Option<(&'d str, &'e str)> {
+    pub fn ml_comment<'a>(&'a self) -> Option<(&'a str, &'a str)> {
         self.multi_line_comment
+            .iter()
+            .map(|(x,y)|(x.as_str(),y.as_str()))
+            .next()
     }
 
-    pub fn special<'g>(&self, c:&'g str) -> bool {
-        for &x in self.specials() {
+    pub fn special(&self, c: &str) -> bool {
+        for x in self.specials() {
             if x == c {
                 return true;
             }
@@ -109,7 +253,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
     }
     
     pub fn delimiter<'g>(&self, c: &'g str) -> Option<Side> {
-        for &(x,y) in self.lr_delimiters() {
+        for (x,y) in self.lr_delimiters() {
             if x == c {
                 return Some(Side::Left);
             } 
@@ -117,7 +261,7 @@ impl<'a, 'b, 'c, 'd, 'e, 'f> Tokeniser<'a, 'b, 'c, 'd, 'e, 'f> {
                 return Some(Side::Right);
             }
         }
-        for &x in self.bal_delimiters() {
+        for x in self.bal_delimiters() {
             if x == c {
                 return Some(Side::Bal);
             }
@@ -448,10 +592,16 @@ mod tests {
     }
 
     #[test]
-    fn tokeniser_new_works() {
-        let tokeniser = Tokeniser::new("!@%👨‍💻*", &vec!["<>", "()", "{}", "🇺🇸👋🏽"], "\"", Some("//"), Some(("/*","*/"))).unwrap();
-        assert_eq!(tokeniser.specials(),&vec!["!", "@", "%", "👨‍💻", "*"]);
-        assert_eq!(tokeniser.lr_delimiters(),&vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
+    fn tokeniser_building_works() {
+        let mut tokeniser = Tokeniser::new();
+        tokeniser.add_specials("!@%👨‍💻*");
+        tokeniser.add_delimiter_pairs(&vec!["<>", "()", "{}", "🇺🇸👋🏽"]).unwrap();
+        tokeniser.add_balanced_delimiters("\"").unwrap();
+        tokeniser.set_sl_comment("//").unwrap();
+        tokeniser.set_ml_comment("/*","*/").unwrap();
+        assert_eq!(tokeniser.specials(),vec!["!", "@", "%", "👨‍💻", "*", "<", ">", "(", ")", "{", "}", "🇺🇸", "👋🏽", "\"", "/"]);
+        assert_eq!(tokeniser.lr_delimiters(),vec![("<",">"),("(",")"),("{","}"),("🇺🇸","👋🏽")]);
+        assert_eq!(tokeniser.bal_delimiters(),vec!["\""]);
         assert_eq!(tokeniser.sl_comment(),Some("//"));
         assert_eq!(tokeniser.ml_comment(),Some(("/*","*/")));
     }
@@ -466,7 +616,12 @@ mod tests {
          now👋🏽 hi £*$*@ \n\
         help!\n\
         \"hello\"hi";
-        let tokeniser = Tokeniser::new(r#",;=?.'*)(/£<>@🇺🇸👋🏽""#,&vec!["()","[]"], "\"", Some("//"), Some(("🇺🇸","👋🏽"))).unwrap();
+        let mut tokeniser = Tokeniser::new();
+        tokeniser.add_delimiter_pairs(&vec!["()","[]"]).unwrap();
+        tokeniser.add_balanced_delimiter("\"").unwrap();
+        tokeniser.set_sl_comment("//").unwrap();
+        tokeniser.set_ml_comment("🇺🇸","👋🏽").unwrap();
+        tokeniser.add_specials(",;=?.'£<>@*");
         assert_eq!(tokeniser.tokenise(source).unwrap(),vec![
             Token { state: WhiteSpace, val: " ", start_pos: 0 },
             Token { state: Word, val: "hi", start_pos: 1 },
@@ -538,7 +693,7 @@ mod tests {
             Token { state: NewLine, val: "\r", start_pos: 8},
             Token { state: Word, val: "hiagain", start_pos: 9}
         ];
-        let tokeniser = Tokeniser::new("",&vec![],"",None,None).unwrap();
+        let tokeniser = Tokeniser::new();
         assert_eq!(tokeniser.tokenise(source).unwrap(), tokens);
     }
 }
