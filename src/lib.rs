@@ -1,56 +1,203 @@
+//! # Tokenise
+//! 
+//! A flexible lexical analyser (tokeniser) for parsing text into configurable token types.
+//! 
+//! `tokenise` allows you to split text into tokens based on customisable rules for special characters,
+//! delimiters, and comments. It's designed to be flexible enough to handle various syntax styles
+//! while remaining simple to configure.
+//! 
+//! ## Basic Usage
+//! 
+//! The following example demonstrates how to configure a tokeniser with common syntax elements
+//! and process a simple code snippet:
+//! 
+//! ```
+//! use tokenise::Tokeniser;
+//! 
+//! fn main() {
+//!     // Create a new tokeniser
+//!     let mut tokeniser = Tokeniser::new();
+//!     
+//!     // Configure tokeniser with rules
+//!     tokeniser.add_specials(".,;:!?");
+//!     tokeniser.add_delimiter_pairs(&vec!["()", "[]", "{}"]).unwrap();
+//!     tokeniser.add_balanced_delimiter("\"").unwrap();
+//!     tokeniser.set_sl_comment("//").unwrap();
+//!     tokeniser.set_ml_comment("/*", "*/").unwrap();
+//!     
+//!     // Tokenise some source text
+//!     let source = "let x = 42; // The answer\nprint(\"Hello world!\");";
+//!     let tokens = tokeniser.tokenise(source).unwrap();
+//!     
+//!     // Work with the resulting tokens
+//!     for token in tokens {
+//!         println!("{:?}: '{}'", token.get_state(), token.value());
+//!     }
+//! }
+//! ```
+//! 
+//! ## Features
+//! 
+//! - Unicode support (using grapheme clusters)
+//! - Configurable special characters and delimiters
+//! - Support for paired delimiters (e.g., parentheses, brackets)
+//! - Support for balanced delimiters (e.g., quotation marks)
+//! - Single-line and multi-line comment handling
+//! - Whitespace and newline preservation
+//! 
+//! ## Token Types
+//! 
+//! The tokeniser recognises several token types represented by the `TokenState` enum:
+//! 
+//! - `Word`: Non-special character sequences (anything not identified as a special character or whitespace)
+//! - `LDelimiter`/`RDelimiter`: Left/right delimiters of a pair (e.g., '(', ')')
+//! - `BDelimiter`: Balanced delimiters (e.g., quotation marks)
+//! - `SymbolString`: Special characters
+//! - `NewLine`: Line breaks
+//! - `WhiteSpace`: Spaces, tabs, etc.
+//! - `SLComment`: Single-line comments
+//! - `MLComment`: Multi-line comments
+//! 
+//! More precise definitions can be found in the documentation for each specific type.
+
 use unicode_segmentation::UnicodeSegmentation;
 
 // TODO: add multi-character Parenthesis
+/// Represents the type of a token in the tokenisation process.
+///
+/// Each token in the parsed text is classified as one of these types,
+/// which determines how it is interpreted and processed.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum TokenState {
+    /// A sequence of non-special characters (excluding whitespace).
     Word,
+    
+    /// A left delimiter of a pair (e.g., opening bracket).
     LDelimiter,
+    
+    /// A right delimiter of a pair (e.g., closing bracket).
     RDelimiter,
+    
+    /// A balanced delimiter that can open or close (e.g., quotation mark).
     BDelimiter,
+    
+    /// A sequence of special characters not recognized as delimiters or comments.
     SymbolString,
+    
+    /// A newline character sequence (\n, \r, or \r\n).
     NewLine,
+    
+    /// A sequence of whitespace characters (excluding newlines).
     WhiteSpace,
+    
+    /// A single-line comment.
     SLComment,
+    
+    /// A multi-line comment.
     MLComment
 }
 use TokenState::*;
 
+/// Represents the categorisation of delimiters into left, right, or balanced types.
+///
+/// This is used to classify delimiters when tokenising text:
+/// - Left delimiters open a section (e.g., opening brackets)
+/// - Right delimiters close a section (e.g., closing brackets)
+/// - Balanced delimiters can serve as both opening and closing (e.g., quotation marks)
 #[derive(Debug)]
 pub enum Side {
+    /// A right (closing) delimiter such as ')', ']', or '}'.
     Right,
+    
+    /// A left (opening) delimiter such as '(', '[', or '{'.
     Left,
+    
+    /// A balanced delimiter that can both open and close, such as '"'.
     Bal
 }
 
+/// Checks if a string is exactly one grapheme cluster (user-perceived character).
+///
+/// # Examples
+/// ```
+/// assert!(tokenise::is_grapheme("a"));
+/// assert!(tokenise::is_grapheme("👨‍💻"));
+/// assert!(tokenise::is_grapheme("\r\n"));
+/// assert!(!tokenise::is_grapheme("ab"));
+/// ```
 pub fn is_grapheme(s: &str) -> bool {
     s.graphemes(true).collect::<Vec<_>>().len() == 1
 }
 
+/// Checks if a string consists entirely of whitespace.
+///
+/// # Examples
+/// ```
+/// assert!(tokenise::is_whitespace(" \t"));
+/// assert!(!tokenise::is_whitespace("a "));
+/// ```
 pub fn is_whitespace(c: &str) -> bool {
     c.trim().is_empty()
 }
 
+/// Represents a token extracted from the source text during tokenisation.
+///
+/// Each token has a state (type), a string value, and a position in the original text.
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Token<'a> {
+    /// The type of this token.
     state: TokenState,
+    
+    /// The string content of this token.
     val: &'a str,
+    
+    /// The starting position (in characters) of this token in the original text.
     start_pos: usize
 }
 
 impl<'a> Token<'a> {
+    /// Returns the starting position of this token in the original text.
     pub fn start(&self) -> usize {
         self.start_pos
     }
 
+    /// Returns the string content of this token.
     pub fn value(&self) -> &'a str {
         self.val
     }
 
+    /// Returns the state (type) of this token.
     pub fn get_state(&self) -> TokenState {
         self.state
     }
 }
 
+/// A configurable tokeniser for parsing text into meaningful tokens.
+///
+/// The `Tokeniser` can be customised with special characters, delimiter pairs,
+/// balanced delimiters, and comment markers to suit different syntax requirements.
+/// Once configured, it can parse text into tokens according to those rules.
+///
+/// Note that delimiters and the characters in comment markers are automatically
+/// treated as special characters, but with additional distinctions in how they're
+/// processed during tokenisation.
+///
+/// # Examples
+///
+/// ```
+/// use tokenise::Tokeniser;
+///
+/// // Create and configure a tokeniser for a C-like language
+/// let mut tokeniser = Tokeniser::new();
+/// tokeniser.add_specials("+-*/=<>!&|^~%");
+/// tokeniser.add_delimiter_pairs(&vec!["()", "[]", "{}"]).unwrap();
+/// tokeniser.set_sl_comment("//").unwrap();
+/// tokeniser.set_ml_comment("/*", "*/").unwrap();
+///
+/// // Tokenise some code
+/// let code = "int main() { // Entry point\n    return 0;\n}";
+/// let tokens = tokeniser.tokenise(code).unwrap();
+/// ```
 pub struct Tokeniser {
     special_characters: Vec<String>,
     delimiter_pairs: Vec<(String, String)>,
@@ -60,7 +207,19 @@ pub struct Tokeniser {
 }
 
 impl Tokeniser {
-
+    /// Creates a new, unconfigured `Tokeniser`.
+    ///
+    /// This constructor creates a tokeniser with no special characters, delimiters, or comment markers.
+    /// You'll need to configure it with the appropriate methods before it's ready for use.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// // Configure the tokeniser...
+    /// ```
     pub fn new() -> Self {
         Self {
             special_characters: Vec::new(),
@@ -71,6 +230,36 @@ impl Tokeniser {
         }
     }
 
+    /// Adds a single special character to the tokeniser.
+    ///
+    /// Special characters are treated differently from regular text during tokenisation.
+    /// They form `SymbolString` tokens unless they're also configured as delimiters or
+    /// used in comment markers.
+    ///
+    /// # Arguments
+    ///
+    /// * `special` - The special character to add, which must be a single grapheme
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the character was added successfully
+    /// * `Err(String)` if the input is not a single grapheme
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_special("@").unwrap();
+    /// tokeniser.add_special("+").unwrap();
+    ///
+    /// // Unicode graphemes are supported
+    /// tokeniser.add_special("👨‍💻").unwrap();
+    ///
+    /// // This would fail as it's not a single grapheme
+    /// assert!(tokeniser.add_special("abc").is_err());
+    /// ```
     pub fn add_special(&mut self, special: &str) -> Result<(),String> {
         if !is_grapheme(special) {
             Err(format!("string {:?} is not a single grapheme",special))
@@ -82,12 +271,61 @@ impl Tokeniser {
         }
     }
 
+    /// Adds multiple special characters to the tokeniser.
+    ///
+    /// This is a convenience method that adds each grapheme in the input string
+    /// as a special character.
+    ///
+    /// # Arguments
+    ///
+    /// * `specials` - A string containing the special characters to add
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_specials("+-*/=<>!&|^~%");
+    /// ```
     pub fn add_specials(&mut self, specials: &str) {
         for c in specials.graphemes(true) {
             self.add_special(c).unwrap();
         }
     }
 
+    /// Adds a pair of left and right delimiters to the tokeniser.
+    ///
+    /// Delimiter pairs are used to mark the beginning and end of sections in text,
+    /// such as parentheses, brackets, and braces. During tokenisation, they are
+    /// classified as `LDelimiter` and `RDelimiter` respectively.
+    ///
+    /// Both characters are automatically added as special characters if they aren't already.
+    ///
+    /// # Arguments
+    ///
+    /// * `left` - The left (opening) delimiter, which must be a single grapheme
+    /// * `right` - The right (closing) delimiter, which must be a single grapheme
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the delimiter pair was added successfully
+    /// * `Err(String)` if either character is not a single grapheme, or if either
+    ///   character is already used as a different type of delimiter
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_delimiter_pair("(", ")").unwrap();
+    /// tokeniser.add_delimiter_pair("[", "]").unwrap();
+    /// tokeniser.add_delimiter_pair("{", "}").unwrap();
+    ///
+    /// // Unicode delimiters are supported
+    /// tokeniser.add_delimiter_pair("「", "」").unwrap();
+    /// ```
     pub fn add_delimiter_pair(&mut self, left: &str, right: &str) -> Result<(),String> {
         if !is_grapheme(left) {
             Err(format!("string {:?} is not a single grapheme",left))
@@ -131,6 +369,31 @@ impl Tokeniser {
         }
     }
 
+    /// Adds multiple delimiter pairs to the tokeniser.
+    ///
+    /// Each pair should be represented as a string containing exactly two graphemes,
+    /// where the first is the left delimiter and the second is the right delimiter.
+    /// 
+    /// Each character is automatically added as a special character if it isn't already.
+    ///
+    /// # Arguments
+    ///
+    /// * `delimiter_pairs` - A vector of strings, each containing exactly two graphemes
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if all delimiter pairs were added successfully
+    /// * `Err(String)` if any string doesn't contain exactly two graphemes, or if any
+    ///   character is already used as a different type of delimiter
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_delimiter_pairs(&vec!["()", "[]", "{}"]).unwrap();
+    /// ```
     pub fn add_delimiter_pairs(&mut self, delimiter_pairs: &Vec<&str>) -> Result<(),String> {
         for &s in delimiter_pairs {
             let v = s.graphemes(true).collect::<Vec<_>>();
@@ -148,6 +411,33 @@ impl Tokeniser {
         Ok(())
     }
 
+    /// Adds a balanced delimiter to the tokeniser.
+    ///
+    /// Balanced delimiters are characters that serve as both opening and closing markers,
+    /// such as quotation marks. During tokenisation, they are classified as `BDelimiter`.
+    ///
+    /// The character is automatically added as a special character if it isn't already.
+    ///
+    /// # Arguments
+    ///
+    /// * `delim` - The balanced delimiter, which must be a single grapheme
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the delimiter was added successfully
+    /// * `Err(String)` if the character is not a single grapheme, or if it is already used
+    ///   as a different type of delimiter
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_balanced_delimiter("\"").unwrap(); // Double quote
+    /// tokeniser.add_balanced_delimiter("'").unwrap();  // Single quote
+    /// tokeniser.add_balanced_delimiter("`").unwrap();  // Backtick
+    /// ```
     pub fn add_balanced_delimiter(&mut self, delim: &str) -> Result<(),String> {
         if !is_grapheme(delim) {
             Err(format!("string {:?} is not a single grapheme",delim))
@@ -173,6 +463,28 @@ impl Tokeniser {
         }
     }
 
+    /// Adds multiple balanced delimiters to the tokeniser.
+    ///
+    /// Each character in the input string is added as a balanced delimiter.
+    /// The characters are automatically added as special characters if they aren't already.
+    ///
+    /// # Arguments
+    ///
+    /// * `delims` - A string containing the balanced delimiters to add
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if all delimiters were added successfully
+    /// * `Err(String)` if any character is already used as a different type of delimiter
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_balanced_delimiters("\"'`").unwrap(); // Adds ", ', and ` as balanced delimiters
+    /// ```
     pub fn add_balanced_delimiters(&mut self, delims: &str) -> Result<(),String> {
         for delim in delims.graphemes(true) {
             match self.add_balanced_delimiter(delim) {
@@ -185,6 +497,34 @@ impl Tokeniser {
         Ok(())
     }
 
+    /// Sets the marker for single-line comments.
+    ///
+    /// Single-line comments run from the marker to the end of the line.
+    /// During tokenisation, they are classified as `SLComment`.
+    ///
+    /// All characters in the comment marker are automatically added as special characters.
+    ///
+    /// # Arguments
+    ///
+    /// * `comm` - The single-line comment marker (e.g., "//")
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the marker was set successfully
+    /// * `Err(String)` if the marker is an empty string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_sl_comment("//").unwrap();  // C/C++/Rust style
+    ///
+    /// // Could also use other styles
+    /// // tokeniser.set_sl_comment("#").unwrap();   // Python/Ruby style
+    /// // tokeniser.set_sl_comment("--").unwrap();  // SQL/Lua style
+    /// ```
     pub fn set_sl_comment(&mut self, comm: &str) -> Result<(),String> {
         if comm.len() == 0 {
             Err(format!("Empty string cannot be the start of a single line comment"))
@@ -195,6 +535,50 @@ impl Tokeniser {
         }
     }
 
+    /// Sets the markers for multi-line comments.
+    ///
+    /// Multi-line comments run from the start marker to the end marker,
+    /// potentially spanning multiple lines. During tokenisation, they
+    /// are classified as `MLComment`.
+    ///
+    /// All characters in both comment markers are automatically added as special characters.
+    ///
+    /// # Arguments
+    ///
+    /// * `left` - The start marker for multi-line comments (e.g., "/*")
+    /// * `right` - The end marker for multi-line comments (e.g., "*/")
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the markers were set successfully
+    /// * `Err(String)` if either marker is an empty string
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_ml_comment("/*", "*/").unwrap();  // C/C++/Rust style
+    ///
+    /// // Could also use other styles
+    /// // tokeniser.set_ml_comment("<!--", "-->").unwrap();  // HTML/XML style
+    /// // tokeniser.set_ml_comment("{-", "-}").unwrap();    // Haskell style
+    /// ```
+    /// 
+    /// # Warning
+    /// 
+    /// Be cautious with comment markers that contain alphanumeric characters (like words). 
+    /// Since all characters in comment markers are added as special characters, using 
+    /// word-based markers may cause unexpected tokenisation of normal text:
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    /// 
+    /// // Not recommended - would treat the letters in "begin" and "end" as special characters
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_ml_comment("=begin", "=end").unwrap(); // Ruby style
+    /// ```
     pub fn set_ml_comment(&mut self, left: &str, right: &str) -> Result<(),String> {
         if left.len() == 0 {
             Err(format!("Empty string cannot be the start of a multi-line comment"))
@@ -208,6 +592,24 @@ impl Tokeniser {
         }
     }
 
+    /// Returns a vector of all registered special characters.
+    ///
+    /// # Returns
+    ///
+    /// A vector of string slices, each containing one special character.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_specials("+-*/");
+    /// 
+    /// let specials = tokeniser.specials();
+    /// assert!(specials.contains(&"+"));
+    /// assert!(specials.contains(&"-"));
+    /// ```
     pub fn specials<'a>(&'a self) -> Vec<&'a str> {
         self.special_characters
             .iter()
@@ -215,6 +617,23 @@ impl Tokeniser {
             .collect()
     }
 
+    /// Returns a vector of all registered left-right delimiter pairs.
+    ///
+    /// # Returns
+    ///
+    /// A vector of tuples, each containing a left delimiter and its corresponding right delimiter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_delimiter_pairs(&vec!["()", "[]"]).unwrap();
+    /// 
+    /// let delimiters = tokeniser.lr_delimiters();
+    /// assert!(delimiters.contains(&("(", ")")));
+    /// ```
     pub fn lr_delimiters<'a>(&'a self) -> Vec<(&'a str, &'a str)> {
         self.delimiter_pairs
             .iter()
@@ -222,6 +641,24 @@ impl Tokeniser {
             .collect()
     }
 
+    /// Returns a vector of all registered balanced delimiters.
+    ///
+    /// # Returns
+    ///
+    /// A vector of string slices, each containing one balanced delimiter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_balanced_delimiters("\"'").unwrap();
+    /// 
+    /// let delimiters = tokeniser.bal_delimiters();
+    /// assert!(delimiters.contains(&"\""));
+    /// assert!(delimiters.contains(&"'"));
+    /// ```
     pub fn bal_delimiters<'a>(&'a self) -> Vec<&'a str> {
         self.balanced_delimiters
             .iter()
@@ -229,6 +666,23 @@ impl Tokeniser {
             .collect()
     }
 
+    /// Returns the configured single-line comment marker, if any.
+    ///
+    /// # Returns
+    ///
+    /// An `Option` containing the single-line comment marker, or `None` if not configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// assert_eq!(tokeniser.sl_comment(), None);
+    ///
+    /// tokeniser.set_sl_comment("//").unwrap();
+    /// assert_eq!(tokeniser.sl_comment(), Some("//"));
+    /// ```
     pub fn sl_comment<'a>(&'a self) -> Option<&'a str> {
         self.single_line_comment
             .iter()
@@ -236,6 +690,24 @@ impl Tokeniser {
             .next()
     }
 
+    /// Returns the configured multi-line comment markers, if any.
+    ///
+    /// # Returns
+    ///
+    /// An `Option` containing a tuple of the start and end markers for multi-line comments,
+    /// or `None` if not configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// assert_eq!(tokeniser.ml_comment(), None);
+    ///
+    /// tokeniser.set_ml_comment("/*", "*/").unwrap();
+    /// assert_eq!(tokeniser.ml_comment(), Some(("/*", "*/")));
+    /// ```
     pub fn ml_comment<'a>(&'a self) -> Option<(&'a str, &'a str)> {
         self.multi_line_comment
             .iter()
@@ -243,6 +715,32 @@ impl Tokeniser {
             .next()
     }
 
+    /// Checks if a character is registered as a special character.
+    ///
+    /// Special characters include those explicitly added via `add_special`/`add_specials`,
+    /// as well as any characters used in delimiters or comment markers.
+    ///
+    /// # Arguments
+    ///
+    /// * `c` - The character to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the character is registered as a special character, `false` otherwise.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_special("+").unwrap();
+    /// tokeniser.add_delimiter_pair("(", ")").unwrap();
+    ///
+    /// assert!(tokeniser.special("+")); // Explicitly added special
+    /// assert!(tokeniser.special("(")); // Special because it's a delimiter
+    /// assert!(!tokeniser.special("-")); // Not registered as special
+    /// ```
     pub fn special(&self, c: &str) -> bool {
         for x in self.specials() {
             if x == c {
@@ -252,6 +750,33 @@ impl Tokeniser {
         false
     }
     
+    /// Checks if a character is registered as a delimiter and returns its type.
+    ///
+    /// # Arguments
+    ///
+    /// * `c` - The character to check
+    ///
+    /// # Returns
+    ///
+    /// * `Some(Side::Left)` if the character is a left delimiter
+    /// * `Some(Side::Right)` if the character is a right delimiter
+    /// * `Some(Side::Bal)` if the character is a balanced delimiter
+    /// * `None` if the character is not a delimiter
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::{Tokeniser, Side};
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_delimiter_pair("(", ")").unwrap();
+    /// tokeniser.add_balanced_delimiter("\"").unwrap();
+    ///
+    /// assert_eq!(tokeniser.delimiter("("), Some(Side::Left));
+    /// assert_eq!(tokeniser.delimiter(")"), Some(Side::Right));
+    /// assert_eq!(tokeniser.delimiter("\""), Some(Side::Bal));
+    /// assert_eq!(tokeniser.delimiter("a"), None);
+    /// ```
     pub fn delimiter<'g>(&self, c: &'g str) -> Option<Side> {
         for (x,y) in self.lr_delimiters() {
             if x == c {
@@ -269,6 +794,28 @@ impl Tokeniser {
         None
     }
 
+    /// Checks if a string is the configured single-line comment marker.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The string to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the string exactly matches the configured single-line comment marker,
+    /// `false` otherwise or if no single-line comment marker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_sl_comment("//").unwrap();
+    ///
+    /// assert!(tokeniser.is_sl_comment_start("//"));
+    /// assert!(!tokeniser.is_sl_comment_start("/"));
+    /// ```
     pub fn is_sl_comment_start(&self, s: &str) -> bool {
         match self.sl_comment() {
             None => false,
@@ -276,6 +823,31 @@ impl Tokeniser {
         }
     }
 
+    /// Checks if a string ends with the configured single-line comment marker.
+    ///
+    /// This is used during tokenisation to detect when a series of special characters
+    /// transitions into a comment.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The string to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the string ends with the configured single-line comment marker,
+    /// `false` otherwise or if no single-line comment marker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_sl_comment("//").unwrap();
+    ///
+    /// assert!(tokeniser.ends_with_sl_comment_start("abc//"));
+    /// assert!(!tokeniser.ends_with_sl_comment_start("abc/"));
+    /// ```
     pub fn ends_with_sl_comment_start(&self, s: &str) -> bool {
         match self.sl_comment() {
             None => false,
@@ -283,6 +855,28 @@ impl Tokeniser {
         }
     }
 
+    /// Checks if a string is the configured multi-line comment start marker.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The string to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the string exactly matches the configured multi-line comment start marker,
+    /// `false` otherwise or if no multi-line comment marker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_ml_comment("/*", "*/").unwrap();
+    ///
+    /// assert!(tokeniser.is_ml_comment_start("/*"));
+    /// assert!(!tokeniser.is_ml_comment_start("*/"));
+    /// ```
     pub fn is_ml_comment_start(&self, s: &str) -> bool {
         match self.ml_comment() {
             None => false,
@@ -290,6 +884,31 @@ impl Tokeniser {
         }
     }
 
+    /// Checks if a string ends with the configured multi-line comment start marker.
+    ///
+    /// This is used during tokenisation to detect when a series of special characters
+    /// transitions into a comment.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The string to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the string ends with the configured multi-line comment start marker,
+    /// `false` otherwise or if no multi-line comment marker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_ml_comment("/*", "*/").unwrap();
+    ///
+    /// assert!(tokeniser.ends_with_ml_comment_start("abc/*"));
+    /// assert!(!tokeniser.ends_with_ml_comment_start("abc/"));
+    /// ```
     pub fn ends_with_ml_comment_start(&self, s: &str) -> bool {
         match self.ml_comment() {
             None => false,
@@ -297,42 +916,72 @@ impl Tokeniser {
         }
     }
 
+    /// Checks if a string is the configured multi-line comment end marker.
+    ///
+    /// # Arguments
+    ///
+    /// * `s` - The string to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the string exactly matches the configured multi-line comment end marker,
+    /// `false` otherwise or if no multi-line comment marker is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::Tokeniser;
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.set_ml_comment("/*", "*/").unwrap();
+    ///
+    /// assert!(tokeniser.is_ml_comment_end("*/"));
+    /// assert!(!tokeniser.is_ml_comment_end("/*"));
+    /// ```
     pub fn is_ml_comment_end(&self, s: &str) -> bool {
         match self.ml_comment() {
             None => false,
             Some((_, end)) => s == end
         }
     }
-
-    pub fn well_formed(&self) -> bool {
-        for (x,y) in self.lr_delimiters() {
-            if (!self.special(x)) || !self.special(y) {
-                return false;
-            }
-        }
-        if let Some(sl_comment) = self.sl_comment() {
-            for c in sl_comment.graphemes(true) {
-                if !self.special(c) {
-                    return false;
-                }
-            }
-        }
-        if let Some((start, end)) = self.ml_comment() {
-            for c in start.graphemes(true) {
-                if !self.special(c) {
-                    return false;
-                }
-            }
-            for c in end.graphemes(true) {
-                if !self.special(c) {
-                    return false
-                }
-            }
-        }
-        true
-    }
-
     
+    /// Tokenises a string according to the configured rules.
+    ///
+    /// This is the main method of the library, converting a string into a sequence of tokens
+    /// based on the special characters, delimiters, and comment markers that have been configured.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The string to tokenise
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Vec<Token>)` - A vector of tokens if tokenisation was successful
+    /// * `Err(String)` - An error message if tokenisation failed
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tokenise::{Tokeniser, TokenState};
+    ///
+    /// let mut tokeniser = Tokeniser::new();
+    /// tokeniser.add_specials("+-*/=");
+    /// tokeniser.add_delimiter_pairs(&vec!["()", "[]"]).unwrap();
+    /// tokeniser.set_sl_comment("//").unwrap();
+    ///
+    /// let source = "x = 42; // The answer";
+    /// let tokens = tokeniser.tokenise(source).unwrap();
+    ///
+    /// // We can now work with the tokens
+    /// for token in &tokens {
+    ///     match token.get_state() {
+    ///         TokenState::Word => println!("Word: {}", token.value()),
+    ///         TokenState::SymbolString => println!("Symbol: {}", token.value()),
+    ///         TokenState::SLComment => println!("Comment: {}", token.value()),
+    ///         _ => println!("Other token: {}", token.value()),
+    ///     }
+    /// }
+    /// ```
     pub fn tokenise<'g>(&self, text: &'g str) -> Result<Vec<Token<'g>>,String> {
         let mut out: Vec<Token<'g>> = Vec::new();
         let mut curr_start: usize = 0;
