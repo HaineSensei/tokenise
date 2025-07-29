@@ -86,4 +86,25 @@ IMPLEMENTATION STEPS:
 
 use unicode_segmentation::UnicodeSegmentation;
 
+struct Tokeniser {
+    symbols: Vec<String>,
+
+}
+
+enum LowTokenSort {
+    AlphaNum,
+    WhiteSpace,
+    Symbol
+}
+
+struct LowToken<'a> {
+    val: &'a str,
+    initial_index: usize,
+    sort: LowTokenSort
+}
+
+struct LowTokenIter {
+
+}
+
 // TODO: Implement the actual tokenizer structure and logic
