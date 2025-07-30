@@ -1,4 +1,4 @@
-use crate::{LowTokeniser, LowTokenSort};
+use crate::low_level::{LowTokeniser, LowTokenSort};
 
 #[test]
 fn test_basic_alphanumeric_token() {
