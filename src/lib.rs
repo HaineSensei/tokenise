@@ -87,24 +87,28 @@ IMPLEMENTATION STEPS:
 mod low_level;
 mod automata;
 mod string_tokeniser;
+mod comment_tokeniser;
 
 // Internal modules - not exported publicly
 use low_level::LowTokeniser;
 use string_tokeniser::StringStyle;
+use comment_tokeniser::CommentStyle;
 
 // TODO: Implement the actual tokenizer structure and logic
 
 pub struct Tokeniser {
     low_tokeniser: LowTokeniser,
     // high stuff
-    string_style: Option<StringStyle>
+    string_style: Option<StringStyle>,
+    comment_style: CommentStyle
 }
 
 impl Tokeniser {
     pub fn new(currency_are_symbols: bool, other_symbols_are_symbols:bool) -> Self {
         Tokeniser {
             low_tokeniser: LowTokeniser::new(currency_are_symbols, other_symbols_are_symbols),
-            string_style: None
+            string_style: None,
+            comment_style: CommentStyle::new()
         }
     }
 

@@ -17,6 +17,7 @@ where
 pub(crate) trait TokenVal: Eq {}
 
 impl TokenVal for crate::low_level::LowTokenVal {}
+impl TokenVal for crate::string_tokeniser::StringTokenVal {}
 
 impl<S, T, G, F> NotNecessarilyFiniteStateDeterministicAutomatonBlueprint<S, T, G, F> 
 where
@@ -25,6 +26,15 @@ where
     G: Fn(&S) -> Result<StateSort,String>,
     F: Fn(&S, &T) -> S
 {
+    pub(crate) fn new(initial_state: S, state_sort_map: G, transition_map: F) -> Self {
+        Self {
+            initial_state,
+            inner_state_sort_map: state_sort_map,
+            inner_transition_map: transition_map,
+            _phantom: PhantomData,
+        }
+    }
+
     pub(crate) fn transition_map(&self, state: &S, token: &T) -> S {
         (self.inner_transition_map)(state, token)
     }
