@@ -3,9 +3,16 @@
 version = 4
 
 [[package]]
+name = "deterministic_automata"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01e9759f698143d251d12d621b0f2844b09e6ee1e018698755c3c6984b42a10d"
+
+[[package]]
 name = "tokenise"
 version = "0.2.0"
 dependencies = [
+ "deterministic_automata",
  "unicode-general-category",
  "unicode-segmentation",
 ]

@@ -85,42 +85,26 @@ IMPLEMENTATION STEPS:
 */
 
 mod low_level;
-mod automata;
-mod string_tokeniser;
-mod comment_tokeniser;
+mod high_tokeniser;
 
 // Internal modules - not exported publicly
 use low_level::LowTokeniser;
-use string_tokeniser::StringStyle;
-use comment_tokeniser::CommentStyle;
 
 // TODO: Implement the actual tokenizer structure and logic
 
 pub struct Tokeniser {
     low_tokeniser: LowTokeniser,
-    // high stuff
-    string_style: Option<StringStyle>,
-    comment_style: CommentStyle
+    // TODO: Add high_tokeniser field once implemented
 }
 
 impl Tokeniser {
     pub fn new(currency_are_symbols: bool, other_symbols_are_symbols:bool) -> Self {
         Tokeniser {
             low_tokeniser: LowTokeniser::new(currency_are_symbols, other_symbols_are_symbols),
-            string_style: None,
-            comment_style: CommentStyle::new()
         }
     }
 
-    pub fn change_to_rust_string_style(&mut self) -> Result<(), String> {
-        match &self.string_style {
-            Some(StringStyle::Rust) => Err("String style already rust cannot change to rust.".to_string()),
-            _ => {
-                self.string_style = Some(StringStyle::Rust);
-                Ok(())
-            },
-        }
-    }
+    // TODO: Re-implement string and comment configuration methods once high_tokeniser is ready
 
     pub fn add_exception_symbol(&mut self, c: &str) -> Result<(), String> {
         self.low_tokeniser.add_exception_symbol(c)
