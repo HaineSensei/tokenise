@@ -110,7 +110,7 @@ pub(crate) enum LowTokenSort {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum Genericable<T> {
+pub(crate) enum Genericable<T> {
     Specific(T),
     Generic
 }
@@ -127,11 +127,22 @@ impl<T: PartialEq> PartialEq for Genericable<T> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct LowTokenMatchVal {
-    val: Genericable<String>,
-    sort: LowTokenSort
+    pub(crate) val: Genericable<String>,
+    pub(crate) sort: LowTokenSort
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+impl LowTokenMatchVal {
+    pub(crate) fn ungeneric(&self) -> Option<LowTokenVal> {
+        match &self.val {
+            Specific(val) => {
+                Some(LowTokenVal { val: val.clone(), sort: self.sort })
+            },
+            Generic => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct LowTokenVal {
     pub(crate) val: String,
     pub(crate) sort: LowTokenSort

@@ -4,6 +4,7 @@
 
 pub(crate) mod string;
 pub(crate) mod comment;
+pub(crate) mod delimiter;
 
 use deterministic_automata::{either_automaton::Either, DeterministicAutomatonBlueprint};
 
